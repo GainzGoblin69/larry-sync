@@ -64,9 +64,13 @@ var layerRules = []struct {
 	{"grout/saves", Service},
 	{"grout/bios", Service},
 	{"grout/update", Service},
+	// The same use cases as the screens drive, for a launcher that runs them
+	// as a child process.
+	{"grout/headless", Service},
 
 	{"grout/ui", UI},
 	{"grout/app", Cmd},
+	{"grout/cmd", Cmd},
 
 	// Leaf utilities.
 	{"grout/archive", Pkg},
