@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"grout/cfw"
+	"grout/files"
 	"grout/romm"
 	"grout/settings"
 
@@ -23,9 +25,11 @@ var ErrRomNotOnDevice = errors.New("the game is not on this device")
 // saves on the server, as when it was deleted in the meantime.
 var ErrSaveNotFound = errors.New("that save is no longer on the server")
 
-// ServerSaves lists a game's saves on the server, newest first.
-func ServerSaves(client *romm.Client, romID int) ([]romm.Save, error) {
-	all, err := client.GetSaves(romm.SaveQuery{RomID: romID})
+// ServerSaves lists a game's saves on the server, newest first. Asking as
+// deviceID has the server say, in each save's DeviceSyncs, which one that
+// device holds; it does not narrow the list.
+func ServerSaves(client *romm.Client, romID int, deviceID string) ([]romm.Save, error) {
+	all, err := client.GetSaves(romm.SaveQuery{RomID: romID, DeviceID: deviceID})
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +80,7 @@ type ChosenSave struct {
 func ChooseSave(client *romm.Client, config *settings.Config, deviceID string, romID, saveID int) (ChosenSave, error) {
 	logger := gaba.GetLogger()
 
-	all, err := ServerSaves(client, romID)
+	all, err := ServerSaves(client, romID, deviceID)
 	if err != nil {
 		return ChosenSave{}, fmt.Errorf("listing the game's saves: %w", err)
 	}
@@ -141,9 +145,25 @@ func localSaveFor(config *settings.Config, rom cfw.LocalRomFile) LocalSave {
 
 // promote uploads the save at path as a new version in slot, then records it
 // as what this device holds, so sync sees the device and the server agree.
+//
+// It goes up under a name of its own, the save's name with the time in
+// brackets as RomM names versions. An upload with no device and a name the
+// server already holds replaces that save, and a restore must never do that.
 func promote(client *romm.Client, deviceID string, item SyncItem, path, slot string) (romm.Save, error) {
 	if item.LocalSave.IsDirectorySave {
 		return romm.Save{}, errors.New("folder saves cannot be restored this way yet")
+	}
+
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(filepath.Base(path), ext)
+	staging, err := os.MkdirTemp("", "larry-restore-*")
+	if err != nil {
+		return romm.Save{}, err
+	}
+	defer os.RemoveAll(staging)
+	versioned := filepath.Join(staging, fmt.Sprintf("%s [%s]%s", base, time.Now().UTC().Format("2006-01-02_15-04-05"), ext))
+	if err := files.CopyFile(path, versioned); err != nil {
+		return romm.Save{}, err
 	}
 
 	emulator := filepath.Base(item.LocalSave.EmulatorDir)
@@ -154,7 +174,7 @@ func promote(client *romm.Client, deviceID string, item SyncItem, path, slot str
 		RomID:    item.LocalSave.RomID,
 		Slot:     slot,
 		Emulator: emulator,
-	}, path)
+	}, versioned)
 	if err != nil {
 		return romm.Save{}, err
 	}

@@ -243,9 +243,14 @@ func TestLarrySyncChoosesAnOlderSaveAndKeepsIt(t *testing.T) {
 	stamp := time.Now().UnixNano()
 	older := fmt.Sprintf("older progress %d", stamp)
 	newer := fmt.Sprintf("newer progress %d", stamp)
-	a := uploadSave(t, c, rom, "Another Game (Europe).srm", older)
+	// Named apart, as saves from devices are: RomM replaces a save uploaded
+	// again under the same name rather than keeping both.
+	a := uploadSave(t, c, rom, fmt.Sprintf("Another Game (Europe) [older %d].srm", stamp), older)
 	time.Sleep(1100 * time.Millisecond) // RomM keeps whole seconds
-	b := uploadSave(t, c, rom, "Another Game (Europe).srm", newer)
+	b := uploadSave(t, c, rom, fmt.Sprintf("Another Game (Europe) [newer %d].srm", stamp), newer)
+	if a.ID == b.ID {
+		t.Fatalf("RomM gave both saves id %d", a.ID)
+	}
 
 	card := nextUICard(t, "Roms/Game Boy Advance (GBA)")
 	home := larryHome(t, card, server, device.ID)

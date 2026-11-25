@@ -60,7 +60,7 @@ func (s *Session) ListSaves(ref GameRef) error {
 	if s.Host.DeviceID == "" {
 		return ErrNoDevice
 	}
-	list, err := saves.ServerSaves(s.client(), romID)
+	list, err := saves.ServerSaves(s.client(), romID, s.Host.DeviceID)
 	if err != nil {
 		return fmt.Errorf("listing saves: %w", err)
 	}
