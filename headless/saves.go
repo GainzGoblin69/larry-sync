@@ -3,6 +3,7 @@ package headless
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"grout/saves"
@@ -77,8 +78,29 @@ func (s *Session) syncSaves(options SaveOptions) (saves.SyncReport, error) {
 	}
 
 	items := selectSaveItems(result.Items, options)
+
+	// What was decided, at info level, so a save that did not come down can
+	// be traced from the log on the card without turning on debug logging.
+	logger := slog.Default()
+	logger.Info("Save check", "rom", options.RomID, "direction", options.Direction,
+		"server_items", len(result.Items), "for_this_request", len(items))
+	if options.RomID != 0 && len(items) == 0 {
+		logger.Info("Nothing to sync for this game: it is up to date, has no save on RomM, or was not recognised on the device by name",
+			"rom", options.RomID)
+	}
+	for _, item := range items {
+		remote := ""
+		if item.RemoteSave != nil {
+			remote = item.RemoteSave.FileName
+		}
+		logger.Info("Save action", "rom", saveRomID(item), "action", item.Action.String(),
+			"rom_file", item.LocalSave.RomFileName, "local_save", item.LocalSave.FilePath, "server_save", remote)
+	}
+
 	report := saves.ExecuteSaveSync(client, s.Config, s.Host.DeviceID, items, result.SessionID,
 		func(current, total int) { s.Events.Progress(int64(current), int64(total)) })
+	logger.Info("Save check done", "rom", options.RomID, "downloaded", report.Downloaded,
+		"uploaded", report.Uploaded, "conflicts", report.Conflicts, "errors", report.Errors)
 
 	s.Events.Result("saves_uploaded", strconv.Itoa(report.Uploaded))
 	s.Events.Result("saves_downloaded", strconv.Itoa(report.Downloaded))

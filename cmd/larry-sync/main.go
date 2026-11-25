@@ -302,18 +302,14 @@ func status(events *headless.Events) error {
 	return nil
 }
 
-// logLevel takes the level from the stored settings, so turning on debug
-// logging in grout turns it on here too.
+// logLevel is info, or debug when the stored settings ask for it. Grout's
+// own default is errors only, which left nothing in the log on the card to
+// tell why a save did not come down; the few info lines larry-sync writes per
+// command are what make that traceable.
 func logLevel() slog.Level {
 	config, err := settings.LoadConfig()
-	if err != nil {
-		return slog.LevelInfo
-	}
-	switch config.LogLevel {
-	case settings.LogLevelDebug:
+	if err == nil && config.LogLevel == settings.LogLevelDebug {
 		return slog.LevelDebug
-	case settings.LogLevelError:
-		return slog.LevelError
 	}
 	return slog.LevelInfo
 }
