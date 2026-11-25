@@ -75,6 +75,13 @@ func (s *Session) Fetch(ctx context.Context, options FetchOptions) error {
 				path = unpacked
 			}
 		}
+
+		// Unpacked by an earlier build under the name it had in its archive,
+		// which save sync does not recognise: given RomM's name now.
+		if renamed := nameAfterRomm(game, path, filepath.Dir(path)); renamed != path {
+			s.recordDownload(game, renamed)
+			path = renamed
+		}
 	}
 
 	if offline != nil {
@@ -88,6 +95,7 @@ func (s *Session) Fetch(ctx context.Context, options FetchOptions) error {
 		if !options.SkipSaves {
 			if _, err := s.syncSaves(SaveOptions{RomID: game.ID, Direction: DirectionPull}); err != nil {
 				s.Events.Info("Saves could not be checked: %v", err)
+				s.Events.Result("saves_problem", err.Error())
 			}
 		}
 	}
@@ -163,6 +171,48 @@ func (s *Session) fetchRom(ctx context.Context, game romm.Rom, platform romm.Pla
 	return path, nil
 }
 
+// indexExtensions name files that point at others (a playlist, a cue
+// sheet). They are left as they are: their own names are not what anything
+// matches on.
+var indexExtensions = map[string]bool{".m3u": true, ".cue": true, ".gdi": true, ".ccd": true, ".toc": true}
+
+// nameAfterRomm gives a single-file game unpacked from an archive the name RomM
+// knows it by, in romDirectory. Save sync and the catalog find a game on the
+// card by that name, and an archive's contents are often named otherwise:
+// "DKC3.zip" holding "Donkey Kong Country 3 (USA).sfc" would never get its
+// save. A game already under a name RomM knows, or that cannot be moved
+// without overwriting something, stays where it is.
+func nameAfterRomm(game romm.Rom, path, romDirectory string) string {
+	ext := filepath.Ext(path)
+	if game.HasMultipleFiles || game.FsNameNoExt == "" || indexExtensions[strings.ToLower(ext)] {
+		return path
+	}
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		return path
+	}
+
+	base := strings.TrimSuffix(filepath.Base(path), ext)
+	for _, known := range game.LocalBasenames() {
+		if known == base && filepath.Dir(path) == filepath.Clean(romDirectory) {
+			return path
+		}
+	}
+
+	target := filepath.Join(romDirectory, game.FsNameNoExt+ext)
+	if !isInside(romDirectory, target) {
+		return path
+	}
+	if _, err := os.Stat(target); err == nil {
+		return path
+	}
+	if err := os.Rename(path, target); err != nil {
+		slog.Default().Warn("Could not give the unpacked game RomM's name", "from", path, "to", target, "error", err)
+		return path
+	}
+	slog.Default().Info("Named the unpacked game as RomM does", "from", filepath.Base(path), "to", filepath.Base(target))
+	return target
+}
+
 // recordDownload notes where a game was put, so later commands find it.
 func (s *Session) recordDownload(game romm.Rom, path string) {
 	size := game.FsSizeBytes
@@ -232,7 +282,7 @@ func (s *Session) unpack(game romm.Rom, platform romm.Platform, location string)
 			s.Events.Info("Could not unpack %s, keeping the archive: %v", filepath.Base(location), err)
 			return location, nil
 		}
-		return path, nil
+		return nameAfterRomm(game, path, filepath.Dir(location)), nil
 	}
 
 	return location, nil
