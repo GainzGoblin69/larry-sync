@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"grout/romm"
+	rommapi "grout/romm"
 	"grout/saves"
 )
 
@@ -134,13 +134,13 @@ func explain(t *testing.T, card, home string, runs ...run) string {
 	return b.String()
 }
 
-func client(server *server) *romm.Client {
-	return romm.NewClient(server.URL, romm.WithAuthHeader("Bearer "+server.Token), romm.WithTimeout(30*time.Second))
+func client(server *server) *rommapi.Client {
+	return rommapi.NewClient(server.URL, rommapi.WithAuthHeader("Bearer "+server.Token), rommapi.WithTimeout(30*time.Second))
 }
 
-func romNamed(t *testing.T, c *romm.Client, fileName string) romm.Rom {
+func romNamed(t *testing.T, c *rommapi.Client, fileName string) rommapi.Rom {
 	t.Helper()
-	page, err := c.GetRoms(romm.GetRomsQuery{Search: strings.TrimSuffix(fileName, filepath.Ext(fileName)), Limit: 50})
+	page, err := c.GetRoms(rommapi.GetRomsQuery{Search: strings.TrimSuffix(fileName, filepath.Ext(fileName)), Limit: 50})
 	if err != nil {
 		t.Fatalf("looking up %s: %v", fileName, err)
 	}
@@ -150,18 +150,18 @@ func romNamed(t *testing.T, c *romm.Client, fileName string) romm.Rom {
 		}
 	}
 	t.Fatalf("RomM has no rom %q", fileName)
-	return romm.Rom{}
+	return rommapi.Rom{}
 }
 
 // uploadSave puts a save on the server for rom with no device attached, the
 // way the RomM website, or another emulator talking to RomM, stores one.
-func uploadSave(t *testing.T, c *romm.Client, rom romm.Rom, fileName, content string) romm.Save {
+func uploadSave(t *testing.T, c *rommapi.Client, rom rommapi.Rom, fileName, content string) rommapi.Save {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), fileName)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	save, err := c.UploadSaveWithQuery(romm.UploadSaveQuery{RomID: rom.ID, Emulator: "retroarch"}, path)
+	save, err := c.UploadSaveWithQuery(rommapi.UploadSaveQuery{RomID: rom.ID, Emulator: "retroarch"}, path)
 	if err != nil {
 		t.Fatalf("uploading %s: %v", fileName, err)
 	}
