@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"grout/romm"
 )
@@ -115,5 +116,22 @@ func writeFile(t *testing.T, path string) {
 	}
 	if err := os.WriteFile(path, []byte("rom"), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAge(t *testing.T) {
+	tests := map[time.Duration]string{
+		10 * time.Second:     "just now",
+		time.Minute:          "1 minute ago",
+		59 * time.Minute:     "59 minutes ago",
+		3 * time.Hour:        "3 hours ago",
+		9 * 24 * time.Hour:   "9 days ago",
+		45 * 24 * time.Hour:  "1 month ago",
+		800 * 24 * time.Hour: "2 years ago",
+	}
+	for d, want := range tests {
+		if got := Age(d); got != want {
+			t.Errorf("Age(%v) = %q, want %q", d, got, want)
+		}
 	}
 }

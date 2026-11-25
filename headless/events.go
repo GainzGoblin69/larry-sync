@@ -26,6 +26,10 @@ const (
 	KindInfo = "INFO"
 	// KindResult is an outcome the caller reads back: RESULT <key> <value>.
 	KindResult = "RESULT"
+	// KindSave is one of a game's saves on the server, from list-saves:
+	// SAVE <id> <slot> <updated, unix seconds> <age> <bytes> <newest in slot,
+	// 1 or 0> <on this device, 1 or 0> <devices holding it> <emulator> <file>.
+	KindSave = "SAVE"
 	// KindError is why the command failed: ERROR <message>.
 	KindError = "ERROR"
 )
@@ -83,6 +87,11 @@ func (e *Events) Info(format string, args ...any) {
 // Result reports a named outcome.
 func (e *Events) Result(key, value string) {
 	e.emit(KindResult, key, value)
+}
+
+// Save reports one of a game's saves on the server, for list-saves.
+func (e *Events) Save(fields ...string) {
+	e.emit(KindSave, fields...)
 }
 
 // Error reports why a command failed.

@@ -1525,6 +1525,14 @@ func download(client *romm.Client, config *settings.Config, deviceID string, ite
 	recordSaveState(deviceID, item.LocalSave.RomID, recordFileName, recordSlot, item.RemoteSave.ID, hash)
 
 	logger.Debug("Download successful", "romID", item.LocalSave.RomID, "romName", item.LocalSave.RomName, "path", savePath, "recordedSlot", recordSlot)
+
+	// Callers that need to know where the save went (choosing a save does)
+	// read it here; a save that came down for a game with none has no path
+	// until now.
+	item.LocalSave.FilePath = savePath
+	if item.LocalSave.FileName == "" {
+		item.LocalSave.FileName = filepath.Base(savePath)
+	}
 	return true
 }
 

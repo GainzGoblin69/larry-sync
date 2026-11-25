@@ -215,3 +215,106 @@ func TestLarrySyncBringsDownTheSaveOfANewlyFetchedGame(t *testing.T) {
 		t.Fatalf("the save at %s holds %q, want the server's %q\n%s", savePath, got, content, explain(t, card, home, sync, fetch))
 	}
 }
+
+// saveLines are the SAVE lines of a list-saves run, by save id.
+func saveLines(r run) map[string][]string {
+	out := map[string][]string{}
+	for _, line := range r.events {
+		if fields := strings.Split(line, "\t"); len(fields) >= 11 && fields[0] == "SAVE" {
+			out[fields[1]] = fields[1:]
+		}
+	}
+	return out
+}
+
+// Choosing an older save from RomM in the in-game menu puts it on the device,
+// backs up the one that was there, and keeps it: the check before the next
+// play must not bring the newer one straight back down over it.
+func TestLarrySyncChoosesAnOlderSaveAndKeepsIt(t *testing.T) {
+	server := romm(t)
+	c := client(server)
+	device, err := saves.RegisterDevice(c, fmt.Sprintf("larry-e2e-choose-%d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatalf("registering a device: %v", err)
+	}
+
+	const romFile = "Another Game (Europe).gba"
+	rom := romNamed(t, c, romFile)
+	stamp := time.Now().UnixNano()
+	older := fmt.Sprintf("older progress %d", stamp)
+	newer := fmt.Sprintf("newer progress %d", stamp)
+	a := uploadSave(t, c, rom, "Another Game (Europe).srm", older)
+	time.Sleep(1100 * time.Millisecond) // RomM keeps whole seconds
+	b := uploadSave(t, c, rom, "Another Game (Europe).srm", newer)
+
+	card := nextUICard(t, "Roms/Game Boy Advance (GBA)")
+	home := larryHome(t, card, server, device.ID)
+	runs := []run{larrySync(t, card, home, "sync", "--no-art")}
+	runs = append(runs, larrySync(t, card, home, "fetch", "--rom", fmt.Sprint(rom.ID)))
+	romPath := runs[1].result("rom_path")
+	savePath := filepath.Join(card, "Saves", "GBA", filepath.Base(romPath)+".sav")
+	if got, _ := os.ReadFile(savePath); string(got) != newer {
+		t.Fatalf("after fetch the device holds %q, want the newest save %q\n%s", got, newer, explain(t, card, home, runs...))
+	}
+
+	// The list the in-game menu shows, found by the game's file as it is.
+	list := larrySync(t, card, home, "list-saves", "--path", romPath)
+	runs = append(runs, list)
+	lines := saveLines(list)
+	if list.code != 0 || lines[fmt.Sprint(a.ID)] == nil || lines[fmt.Sprint(b.ID)] == nil {
+		t.Fatalf("list-saves did not list both saves\n%s", explain(t, card, home, runs...))
+	}
+	if newest := lines[fmt.Sprint(b.ID)][5]; newest != "1" {
+		t.Errorf("save %d is the newest in its slot, listed as %q", b.ID, newest)
+	}
+	if onDevice := lines[fmt.Sprint(b.ID)][6]; onDevice != "1" {
+		t.Errorf("save %d is the one on the device, listed as on-device %q", b.ID, onDevice)
+	}
+
+	choose := larrySync(t, card, home, "choose-save", "--path", romPath, "--save", fmt.Sprint(a.ID))
+	runs = append(runs, choose)
+	if choose.code != 0 {
+		t.Fatalf("choose-save failed\n%s", explain(t, card, home, runs...))
+	}
+	if got, _ := os.ReadFile(savePath); string(got) != older {
+		t.Fatalf("after choosing, the device holds %q, want the chosen %q\n%s", got, older, explain(t, card, home, runs...))
+	}
+	if choose.result("promoted") != "1" {
+		t.Errorf("an older save was chosen but not made the newest in its slot\n%s", explain(t, card, home, runs...))
+	}
+
+	// What was there is backed up, not lost.
+	backups, _ := filepath.Glob(filepath.Join(card, "Saves", "GBA", ".backup", "*"))
+	found := false
+	for _, backup := range backups {
+		if content, _ := os.ReadFile(backup); string(content) == newer {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the save that was replaced is not in Saves/GBA/.backup (%v)\n%s", backups, explain(t, card, home, runs...))
+	}
+
+	// The check before the next play keeps the choice.
+	again := larrySync(t, card, home, "fetch", "--rom", fmt.Sprint(rom.ID))
+	runs = append(runs, again)
+	if got, _ := os.ReadFile(savePath); string(got) != older {
+		t.Fatalf("the next fetch replaced the chosen save with %q\n%s", got, explain(t, card, home, runs...))
+	}
+	if again.result("saves_conflicts") != "0" && again.result("saves_conflicts") != "" {
+		t.Errorf("the next fetch saw a conflict over the chosen save\n%s", explain(t, card, home, runs...))
+	}
+
+	// And nothing that was on the server is gone.
+	after, err := c.GetSaves(rommapi.SaveQuery{RomID: rom.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[int]bool{}
+	for _, save := range after {
+		ids[save.ID] = true
+	}
+	if !ids[a.ID] || !ids[b.ID] {
+		t.Errorf("a save was removed from the server while choosing (have %v)", ids)
+	}
+}

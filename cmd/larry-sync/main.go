@@ -60,12 +60,19 @@ Commands:
         Download any BIOS files missing for a platform.
   saves [--rom ID] [--direction both|pull|push]
         Sync saves with the server. Conflicts are reported, never overwritten.
+  list-saves (--rom ID | --path FILE)
+        List a game's saves on the server, newest first, one SAVE line each.
+  choose-save (--rom ID | --path FILE) --save ID
+        Put one of a game's server saves on the device in place of its own,
+        which is backed up first, and keep it chosen for later syncs.
   version
         Print the version.
 
 Output is one event per line, fields separated by tabs:
   STAGE <name> <detail> | PROGRESS <percent> <done> <total> | INFO <message>
   RESULT <key> <value>  | ERROR <message>
+  SAVE <id> <slot> <updated> <age> <bytes> <newest in slot> <on this device>
+       <devices> <emulator> <file>
 
 Exit codes: 0 ok, 1 failed, 2 bad usage, 3 not paired, 4 server unreachable.
 `
@@ -243,6 +250,36 @@ func dispatch(ctx context.Context, events *headless.Events, command string, args
 		return withSession(events, func(session *headless.Session) error {
 			_, err := session.SyncSaves(headless.SaveOptions{RomID: *rom, Direction: parsed})
 			return err
+		})
+
+	case "list-saves":
+		rom := flags.Int("rom", 0, "rom id")
+		path := flags.String("path", "", "the game's file on the device")
+		if err := flags.Parse(args); err != nil {
+			return usageError{err}
+		}
+		if *rom == 0 && *path == "" {
+			return usageError{headless.ErrNoGame}
+		}
+		return withSession(events, func(session *headless.Session) error {
+			return session.ListSaves(headless.GameRef{RomID: *rom, Path: *path})
+		})
+
+	case "choose-save":
+		rom := flags.Int("rom", 0, "rom id")
+		path := flags.String("path", "", "the game's file on the device")
+		save := flags.Int("save", 0, "save id, from list-saves")
+		if err := flags.Parse(args); err != nil {
+			return usageError{err}
+		}
+		if *rom == 0 && *path == "" {
+			return usageError{headless.ErrNoGame}
+		}
+		if *save == 0 {
+			return usageError{errors.New("give --save")}
+		}
+		return withSession(events, func(session *headless.Session) error {
+			return session.ChooseSave(headless.GameRef{RomID: *rom, Path: *path}, *save)
 		})
 	}
 
