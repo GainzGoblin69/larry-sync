@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run:
+        description: "Only the tests matching this go test -run pattern (empty runs all)"
+        required: false
+        default: ""
 
 jobs:
   ui:
@@ -19,10 +24,12 @@ jobs:
         run: docker compose -f test/e2e/compose.yml up -d --wait db romm
 
       - name: Run
+        env:
+          RUN_PATTERN: ${{ inputs.run }}
         run: |
           mkdir -p test/e2e/screenshots
           docker compose -f test/e2e/compose.yml run --rm --build tests \
-            go test -tags=e2e -count=1 -v -timeout 30m ./...
+            go test -tags=e2e -count=1 -v -timeout 30m -run "${RUN_PATTERN:-.}" ./...
 
       # Worth keeping whether or not it passed: on a failure they show what
       # was on screen, and on a pass they show what every firmware looks like.
