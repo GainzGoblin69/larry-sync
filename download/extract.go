@@ -86,15 +86,30 @@ func ExtractArchive(archivePath, romDirectory string, progress *atomic.Float64) 
 	return filepath.Join(romDirectory, playablePath(contents)), nil
 }
 
+// notAGame are extensions found alongside roms in archives that are never
+// what to launch: notes, scans and the like.
+var notAGame = map[string]bool{
+	".txt": true, ".nfo": true, ".diz": true, ".md": true, ".pdf": true, ".htm": true, ".html": true,
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".bmp": true, ".xml": true, ".sfv": true,
+}
+
 // playablePath picks what to launch out of an archive's contents: the playlist
-// if there is one, since it is what ties several discs together, and otherwise
-// the first file.
+// if there is one, since it is what ties several discs together; otherwise the
+// first file that is not a note or a picture; otherwise the first file.
 func playablePath(contents []string) string {
 	if len(contents) == 0 {
 		return ""
 	}
 	for _, name := range contents {
 		if strings.EqualFold(filepath.Ext(name), ".m3u") {
+			return name
+		}
+	}
+	for _, name := range contents {
+		if strings.HasSuffix(name, "/") {
+			continue // a folder
+		}
+		if !notAGame[strings.ToLower(filepath.Ext(name))] {
 			return name
 		}
 	}

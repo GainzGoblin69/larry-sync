@@ -62,6 +62,19 @@ func (s *Session) Fetch(ctx context.Context, options FetchOptions) error {
 		}
 	} else {
 		s.Events.Info("%s is already on the device", displayName(game))
+
+		// Downloaded before archives were unpacked here, and still zipped: the
+		// emulator cannot open it, so it is unpacked now.
+		if !game.HasMultipleFiles && download.IsArchive(path) && s.unpacks(platform) {
+			unpacked, err := s.unpack(game, platform, path)
+			if err != nil {
+				return err
+			}
+			if unpacked != path {
+				s.recordDownload(game, unpacked)
+				path = unpacked
+			}
+		}
 	}
 
 	if offline != nil {
@@ -146,14 +159,48 @@ func (s *Session) fetchRom(ctx context.Context, game romm.Rom, platform romm.Pla
 
 	cfw.FillGamesMetadata(plan.Entries)
 
+	s.recordDownload(game, path)
+	return path, nil
+}
+
+// recordDownload notes where a game was put, so later commands find it.
+func (s *Session) recordDownload(game romm.Rom, path string) {
 	size := game.FsSizeBytes
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
 		size = info.Size()
 	}
 	s.State.RecordDownload(game.ID, path, size)
 	s.saveState()
+}
 
-	return path, nil
+// archiveTags are the tags of rom folders whose emulators load a game's zip
+// as it is: arcade cores, which want each game's zip intact.
+var archiveTags = map[string]bool{
+	"FBN": true, "FBNEO": true, "MAME": true, "ARCADE": true,
+	"NEOGEO": true, "CPS1": true, "CPS2": true, "CPS3": true,
+}
+
+// keepsArchives reports whether games in romDirectory stay zipped, going by
+// the tag at the end of the folder's name, as in "Arcade (FBN)".
+func keepsArchives(romDirectory string) bool {
+	base := filepath.Base(romDirectory)
+	start := strings.LastIndex(base, "(")
+	end := strings.LastIndex(base, ")")
+	if start < 0 || end < start {
+		return false
+	}
+	return archiveTags[strings.ToUpper(strings.TrimSpace(base[start+1:end]))]
+}
+
+// unpacks reports whether a game for platform that arrives as a single
+// archive is unpacked. NextUI's emulator opens no archives itself, so every
+// system but arcade needs its games unpacked. Grout's own setting, for anyone
+// who turned it on, unpacks arcade games too.
+func (s *Session) unpacks(platform romm.Platform) bool {
+	if s.Config.UnzipDownloads {
+		return true
+	}
+	return !keepsArchives(cfw.PlatformRomDirectory(*s.Config, platform.FSSlug))
 }
 
 // unpack expands a game that arrived as an archive and returns the path to
@@ -173,14 +220,15 @@ func (s *Session) unpack(game romm.Rom, platform romm.Platform, location string)
 		}
 		return path, nil
 
-	case s.Config.UnzipDownloads && download.IsArchive(location):
+	case download.IsArchive(location) && s.unpacks(platform):
 		s.Events.Stage("extract", displayName(game))
 		progress := atomic.NewFloat64(0)
 		stop := s.watch(progress)
 		path, err := download.ExtractArchive(location, filepath.Dir(location), progress)
 		stop()
 		if err != nil {
-			// The archive is still there, and most cores read one directly.
+			// The archive is still there, which beats losing the download;
+			// the error says why the game may not start.
 			s.Events.Info("Could not unpack %s, keeping the archive: %v", filepath.Base(location), err)
 			return location, nil
 		}
