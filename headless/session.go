@@ -108,7 +108,7 @@ func (s *Session) shareDownloads() {
 		}
 		paths[id] = record.Path
 	}
-	cache.SetKnownFiles(paths)
+	cache.GetCacheManager().SetKnownFiles(paths)
 }
 
 // Close releases the catalog and clears temporary files.

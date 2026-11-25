@@ -37,13 +37,12 @@ func TestGetRomByFSLookup_FindsDownloadedFileByRecord(t *testing.T) {
 	}
 
 	unpacked := "Donkey Kong Country 3 - Dixie Kong's Double Trouble! (USA) (En,Fr)"
-	t.Cleanup(func() { SetKnownFiles(nil) })
 
 	if _, err := cm.GetRomByFSLookup("snes", unpacked); err == nil {
 		t.Fatal("matched before the download was recorded; the test name is not a real miss")
 	}
 
-	SetKnownFiles(map[int]string{
+	cm.SetKnownFiles(map[int]string{
 		310: "/mnt/SDCARD/Roms/Super Nintendo Entertainment System (SFC)/" + unpacked + ".sfc",
 	})
 
