@@ -221,6 +221,7 @@ func (s *Session) recordDownload(game romm.Rom, path string) {
 	}
 	s.State.RecordDownload(game.ID, path, size)
 	s.saveState()
+	s.shareDownloads()
 }
 
 // archiveTags are the tags of rom folders whose emulators load a game's zip

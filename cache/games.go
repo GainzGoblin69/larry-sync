@@ -1171,6 +1171,10 @@ func (cm *Manager) GetRomByFSLookup(fsSlug, localBasename string) (romm.Rom, err
 				cm.stats.recordHit()
 				return game, nil
 			}
+			if game, ok := cm.knownLookup(fsSlug, localBasename); ok {
+				cm.stats.recordHit()
+				return game, nil
+			}
 			cm.stats.recordMiss()
 			return romm.Rom{}, ErrCacheMiss
 		}

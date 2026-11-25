@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"grout/cache"
 	"grout/cfw"
@@ -83,14 +84,31 @@ func Open(events *Events) (*Session, error) {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
 
-	return &Session{
+	session := &Session{
 		Config:    config,
 		Host:      host,
 		CFW:       active,
 		Events:    events,
 		ExportDir: dir,
 		State:     state,
-	}, nil
+	}
+	session.shareDownloads()
+	return session, nil
+}
+
+// shareDownloads tells the catalog which file each downloaded game landed
+// as, so a game whose file is not named as RomM names it still finds its
+// saves: see cache.SetKnownFiles.
+func (s *Session) shareDownloads() {
+	paths := make(map[int]string, len(s.State.Downloads))
+	for key, record := range s.State.Downloads {
+		id, err := strconv.Atoi(key)
+		if err != nil || record.Path == "" {
+			continue
+		}
+		paths[id] = record.Path
+	}
+	cache.SetKnownFiles(paths)
 }
 
 // Close releases the catalog and clears temporary files.
