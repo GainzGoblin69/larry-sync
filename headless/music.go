@@ -387,8 +387,9 @@ func (m *Music) walk(ctx context.Context, source MusicSource, dir string, depth 
 }
 
 // musicKeep is how many songs are kept on the card: the one playing, the
-// one after it, and one spare while a third comes down.
-const musicKeep = 3
+// three before it that the player can go back to (Select + left), and the
+// one after it.
+const musicKeep = 5
 
 // download brings the song down to the music folder, named in order so the
 // oldest can be cleared away.
