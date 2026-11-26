@@ -70,6 +70,10 @@ Commands:
   update check|download [--card PATH]
         Check the firmware's GitHub releases for a newer build, or download
         its MinUI.zip to the top of the card for the boot script to install.
+  files serve [--card PATH]
+        Serve the card to a phone on the same Wi-Fi, to look through,
+        delete files and edit text files, until stopped. Prints the page's
+        address, with its key, as RESULT url.
   music next [--source game|johnny] [--card PATH]
         Bring down the next song for the menu music, from the Copyparty
         folders set in music.txt, and print where it is.
@@ -279,6 +283,20 @@ func dispatch(ctx context.Context, events *headless.Events, command string, args
 			return updater.Download(ctx)
 		}
 		return usageError{fmt.Errorf("unknown update action %q: give check or download", action)}
+
+	case "files":
+		card := flags.String("card", cardPath(), "the top of the SD card")
+		if len(args) == 0 || args[0] != "serve" {
+			return usageError{errors.New("give serve")}
+		}
+		if err := flags.Parse(args[1:]); err != nil {
+			return usageError{err}
+		}
+		server, err := headless.NewFileServer(*card, events)
+		if err != nil {
+			return err
+		}
+		return server.Serve(ctx)
 
 	case "music":
 		source := flags.String("source", headless.MusicGame, "game or johnny")
