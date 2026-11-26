@@ -65,6 +65,10 @@ Commands:
   choose-save (--rom ID | --path FILE) --save ID
         Put one of a game's server saves on the device in place of its own,
         which is backed up first, and keep it chosen for later syncs.
+        Each save's picture follows the list as a SHOT line.
+  update check|download [--card PATH]
+        Check the firmware's GitHub releases for a newer build, or download
+        its MinUI.zip to the top of the card for the boot script to install.
   version
         Print the version.
 
@@ -72,7 +76,8 @@ Output is one event per line, fields separated by tabs:
   STAGE <name> <detail> | PROGRESS <percent> <done> <total> | INFO <message>
   RESULT <key> <value>  | ERROR <message>
   SAVE <id> <slot> <updated> <age> <bytes> <newest in slot> <on this device>
-       <devices> <emulator> <file>
+       <devices> <emulator> <file> <has a picture>
+  SHOT <save id> <path of its picture>
 
 Exit codes: 0 ok, 1 failed, 2 bad usage, 3 not paired, 4 server unreachable.
 `
@@ -252,6 +257,25 @@ func dispatch(ctx context.Context, events *headless.Events, command string, args
 			return err
 		})
 
+	case "update":
+		card := flags.String("card", cardPath(), "the top of the SD card")
+		if len(args) == 0 {
+			return usageError{errors.New("give check or download")}
+		}
+		action, rest := args[0], args[1:]
+		if err := flags.Parse(rest); err != nil {
+			return usageError{err}
+		}
+		updater := headless.NewUpdater(*card, events)
+		switch action {
+		case "check":
+			_, _, err := updater.Check(ctx)
+			return err
+		case "download":
+			return updater.Download(ctx)
+		}
+		return usageError{fmt.Errorf("unknown update action %q: give check or download", action)}
+
 	case "list-saves":
 		rom := flags.Int("rom", 0, "rom id")
 		path := flags.String("path", "", "the game's file on the device")
@@ -284,6 +308,15 @@ func dispatch(ctx context.Context, events *headless.Events, command string, args
 	}
 
 	return usageError{fmt.Errorf("unknown command %q", command)}
+}
+
+// cardPath is the top of the SD card: SDCARD_PATH as NextUI sets it, or where
+// the Brick mounts it.
+func cardPath() string {
+	if path := os.Getenv("SDCARD_PATH"); path != "" {
+		return path
+	}
+	return "/mnt/SDCARD"
 }
 
 // withSession opens the settings and catalog for one command and closes them
