@@ -69,14 +69,19 @@ func (s *Session) ListSaves(ref GameRef) error {
 	}
 
 	now := time.Now()
+	// RomM keeps a device's sync on an older save current after it uploads a
+	// newer one, so several can claim the device. The list is newest first:
+	// the first is the one the device has.
+	marked := false
 	for _, save := range list {
 		onDevice, holders := "0", []string{}
 		for _, sync := range save.DeviceSyncs {
 			if !sync.IsCurrent {
 				continue
 			}
-			if sync.DeviceID == s.Host.DeviceID {
+			if sync.DeviceID == s.Host.DeviceID && !marked {
 				onDevice = "1"
+				marked = true
 			}
 			if sync.DeviceName != "" {
 				holders = append(holders, sync.DeviceName)
