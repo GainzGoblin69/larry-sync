@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -69,6 +70,9 @@ Commands:
   update check|download [--card PATH]
         Check the firmware's GitHub releases for a newer build, or download
         its MinUI.zip to the top of the card for the boot script to install.
+  music next [--source game|johnny] [--card PATH]
+        Bring down the next song for the menu music, from the Copyparty
+        folders set in music.txt, and print where it is.
   version
         Print the version.
 
@@ -275,6 +279,22 @@ func dispatch(ctx context.Context, events *headless.Events, command string, args
 			return updater.Download(ctx)
 		}
 		return usageError{fmt.Errorf("unknown update action %q: give check or download", action)}
+
+	case "music":
+		source := flags.String("source", headless.MusicGame, "game or johnny")
+		card := flags.String("card", cardPath(), "the top of the SD card")
+		if len(args) == 0 || args[0] != "next" {
+			return usageError{errors.New("give next")}
+		}
+		if err := flags.Parse(args[1:]); err != nil {
+			return usageError{err}
+		}
+		if *source != headless.MusicGame && *source != headless.MusicJohnny {
+			return usageError{fmt.Errorf("unknown music %q: give game or johnny", *source)}
+		}
+		// beside the catalog, as the save pictures are
+		dir := filepath.Join(filepath.Dir(headless.ExportDir()), "music")
+		return headless.NewMusic(*card, dir, events).Next(ctx, *source)
 
 	case "list-saves":
 		rom := flags.Int("rom", 0, "rom id")
