@@ -235,7 +235,7 @@ func (u *Updater) fetch(ctx context.Context, asset releaseAsset, path string) er
 		total = resp.ContentLength
 	}
 	hash := sha256.New()
-	progress := &progressWriter{events: u.Events, total: total}
+	progress := &updateProgress{events: u.Events, total: total}
 	_, err = io.Copy(io.MultiWriter(file, hash, progress), resp.Body)
 	if closeErr := file.Close(); err == nil {
 		err = closeErr
@@ -273,13 +273,13 @@ func checkFirmware(path string) error {
 	return errors.New("the update does not hold the firmware")
 }
 
-type progressWriter struct {
+type updateProgress struct {
 	events *Events
 	done   int64
 	total  int64
 }
 
-func (p *progressWriter) Write(b []byte) (int, error) {
+func (p *updateProgress) Write(b []byte) (int, error) {
 	p.done += int64(len(b))
 	p.events.Progress(p.done, p.total)
 	return len(b), nil

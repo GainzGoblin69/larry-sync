@@ -368,7 +368,11 @@ func TestLarrySyncSendsAndShowsSavePictures(t *testing.T) {
 	}
 
 	// What the emulator leaves when the game is quit: the save, and a picture
-	// named for the game's file, both written at the same moment.
+	// named for the game's file, both written at the same moment. Fetching
+	// may have brought down another test's save, stamped this very second;
+	// play takes longer than that, and a save written in the same second
+	// would look untouched.
+	time.Sleep(1100 * time.Millisecond)
 	content := fmt.Sprintf("progress with a picture %d", time.Now().UnixNano())
 	savePath := filepath.Join(card, "Saves", "GBA", filepath.Base(romPath)+".sav")
 	shotPath := filepath.Join(home, "shots", "GBA", filepath.Base(romPath)+".png")
@@ -384,8 +388,8 @@ func TestLarrySyncSendsAndShowsSavePictures(t *testing.T) {
 
 	push := larrySync(t, card, home, "saves", "--direction", "push")
 	runs = append(runs, push)
-	if push.code != 0 {
-		t.Fatalf("pushing the save failed\n%s", explain(t, card, home, runs...))
+	if push.code != 0 || push.result("saves_uploaded") != "1" {
+		t.Fatalf("pushing the save did not upload it\n%s", explain(t, card, home, runs...))
 	}
 
 	list := larrySync(t, card, home, "list-saves", "--path", romPath)
