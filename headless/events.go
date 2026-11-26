@@ -28,8 +28,12 @@ const (
 	KindResult = "RESULT"
 	// KindSave is one of a game's saves on the server, from list-saves:
 	// SAVE <id> <slot> <updated, unix seconds> <age> <bytes> <newest in slot,
-	// 1 or 0> <on this device, 1 or 0> <devices holding it> <emulator> <file>.
+	// 1 or 0> <on this device, 1 or 0> <devices holding it> <emulator> <file>
+	// <has a picture, 1 or 0>.
 	KindSave = "SAVE"
+	// KindShot is a save's picture, fetched after the SAVE lines:
+	// SHOT <save id> <path on the device>.
+	KindShot = "SHOT"
 	// KindError is why the command failed: ERROR <message>.
 	KindError = "ERROR"
 )
@@ -92,6 +96,11 @@ func (e *Events) Result(key, value string) {
 // Save reports one of a game's saves on the server, for list-saves.
 func (e *Events) Save(fields ...string) {
 	e.emit(KindSave, fields...)
+}
+
+// Shot reports where a save's picture was put.
+func (e *Events) Shot(saveID, path string) {
+	e.emit(KindShot, saveID, path)
 }
 
 // Error reports why a command failed.

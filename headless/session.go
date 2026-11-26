@@ -80,6 +80,9 @@ func Open(events *Events) (*Session, error) {
 		config.PlatformsBinding = state.PlatformsBinding
 	}
 
+	// pictures of games as they were left, beside the catalog
+	config.ScreenshotDir = filepath.Join(filepath.Dir(dir), "shots")
+
 	if err := cache.InitCacheManager(host, *config); err != nil {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}

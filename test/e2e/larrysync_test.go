@@ -323,3 +323,97 @@ func TestLarrySyncChoosesAnOlderSaveAndKeepsIt(t *testing.T) {
 		t.Errorf("a save was removed from the server while choosing (have %v)", ids)
 	}
 }
+
+// shotLines are the SHOT lines of a list-saves run: save id to picture path.
+func shotLines(r run) map[string]string {
+	out := map[string]string{}
+	for _, line := range r.events {
+		if fields := strings.Split(line, "\t"); len(fields) >= 3 && fields[0] == "SHOT" {
+			out[fields[1]] = fields[2]
+		}
+	}
+	return out
+}
+
+// pngBytes is a real one-pixel PNG, so RomM keeps it as a picture.
+var pngBytes = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+	0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+	0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+	0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00,
+	0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+}
+
+// Leaving a game keeps a picture of it, which goes up to RomM with the save,
+// and the in-game list of saves brings that picture back down to show.
+func TestLarrySyncSendsAndShowsSavePictures(t *testing.T) {
+	server := romm(t)
+	c := client(server)
+	device, err := saves.RegisterDevice(c, fmt.Sprintf("larry-e2e-shots-%d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatalf("registering a device: %v", err)
+	}
+
+	const romFile = "Another Game (Europe).gba"
+	rom := romNamed(t, c, romFile)
+	card := nextUICard(t, "Roms/Game Boy Advance (GBA)")
+	home := larryHome(t, card, server, device.ID)
+
+	runs := []run{larrySync(t, card, home, "sync", "--no-art")}
+	runs = append(runs, larrySync(t, card, home, "fetch", "--rom", fmt.Sprint(rom.ID)))
+	romPath := runs[1].result("rom_path")
+	if romPath == "" {
+		t.Fatalf("fetch gave no rom_path\n%s", explain(t, card, home, runs...))
+	}
+
+	// What the emulator leaves when the game is quit: the save, and a picture
+	// named for the game's file, both written at the same moment.
+	content := fmt.Sprintf("progress with a picture %d", time.Now().UnixNano())
+	savePath := filepath.Join(card, "Saves", "GBA", filepath.Base(romPath)+".sav")
+	shotPath := filepath.Join(home, "shots", "GBA", filepath.Base(romPath)+".png")
+	if err := os.MkdirAll(filepath.Dir(shotPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(savePath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shotPath, pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	push := larrySync(t, card, home, "saves", "--direction", "push")
+	runs = append(runs, push)
+	if push.code != 0 {
+		t.Fatalf("pushing the save failed\n%s", explain(t, card, home, runs...))
+	}
+
+	list := larrySync(t, card, home, "list-saves", "--path", romPath)
+	runs = append(runs, list)
+	if list.code != 0 {
+		t.Fatalf("list-saves failed\n%s", explain(t, card, home, runs...))
+	}
+	var pushed string
+	for id, fields := range saveLines(list) {
+		if fields[6] == "1" {
+			pushed = id
+			if len(fields) < 11 || fields[10] != "1" {
+				t.Errorf("the pushed save %s is listed without a picture: %q", id, fields)
+			}
+		}
+	}
+	if pushed == "" {
+		t.Fatalf("the pushed save is not listed as on the device\n%s", explain(t, card, home, runs...))
+	}
+	picture := shotLines(list)[pushed]
+	if picture == "" {
+		t.Fatalf("list-saves did not bring down save %s's picture\n%s", pushed, explain(t, card, home, runs...))
+	}
+	got, err := os.ReadFile(picture)
+	if err != nil {
+		t.Fatalf("the picture is not where list-saves said: %v", err)
+	}
+	if !bytes.Equal(got, pngBytes) {
+		t.Errorf("the picture brought down is not the one sent (%d bytes, want %d)", len(got), len(pngBytes))
+	}
+}

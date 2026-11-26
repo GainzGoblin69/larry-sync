@@ -13,6 +13,7 @@ type LocalSave struct {
 	IsDirectorySave bool     // True for platforms like PSP where saves are directories
 	GameID          string   // PSP: game ID prefix (e.g. "UCUS98751")
 	RelatedDirs     []string // PSP: full paths of all save directories for this game
+	Screenshot      string   // a picture of the game from when the save was made, or ""
 }
 
 type SyncAction int

@@ -3,12 +3,15 @@ package headless
 import (
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"grout/cfw"
+	"grout/romm"
 	"grout/saves"
 	"grout/settings"
 )
@@ -94,11 +97,67 @@ func (s *Session) ListSaves(ref GameRef) error {
 			strings.Join(holders, ", "),
 			save.Emulator,
 			save.FileName,
+			boolField(save.ScreenshotPath() != ""),
 		)
 	}
 	s.Events.Result("rom", strconv.Itoa(romID))
 	s.Events.Result("count", strconv.Itoa(len(list)))
+
+	// The list is enough to choose from; pictures follow, newest save first,
+	// so the menu can show the list while they arrive.
+	s.fetchPictures(list)
 	return nil
+}
+
+func boolField(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// fetchPictures brings down each save's picture that is not already on the
+// device and reports where each one is. A picture that cannot be fetched is
+// only logged: the save can be chosen without it.
+func (s *Session) fetchPictures(list []romm.Save) {
+	dir := filepath.Join(s.Config.ScreenshotDir, "romm")
+	if s.Config.ScreenshotDir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		slog.Default().Warn("Cannot keep save pictures", "dir", dir, "error", err)
+		return
+	}
+	client := s.client()
+	for _, save := range list {
+		if save.ScreenshotPath() == "" {
+			continue
+		}
+		ext := save.ScreenshotExt()
+		if ext == "" {
+			ext = ".png"
+		}
+		// named for when the picture changed, so a replaced one is fetched again
+		name := fmt.Sprintf("%d-%d%s", save.ID, save.Screenshot.UpdatedAt.Unix(), ext)
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err != nil {
+			data, err := client.DownloadSaveScreenshot(save)
+			if err != nil {
+				slog.Default().Info("Could not fetch a save's picture", "save", save.ID, "error", err)
+				continue
+			}
+			partial := path + ".part"
+			if err := os.WriteFile(partial, data, 0o644); err != nil {
+				slog.Default().Warn("Could not keep a save's picture", "path", path, "error", err)
+				continue
+			}
+			if err := os.Rename(partial, path); err != nil {
+				os.Remove(partial)
+				continue
+			}
+		}
+		s.Events.Shot(strconv.Itoa(save.ID), path)
+	}
 }
 
 // ChooseSave puts one of a game's server saves on the device in place of the

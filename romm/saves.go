@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sonh/qs"
@@ -368,6 +369,14 @@ func (c *Client) UpdateSave(saveID int, savePath string) (Save, error) {
 }
 
 func (c *Client) UploadSaveWithQuery(query UploadSaveQuery, savePath string) (Save, error) {
+	return c.UploadSaveWithScreenshot(query, savePath, "")
+}
+
+// UploadSaveWithScreenshot uploads a save with a picture of the game, which
+// RomM shows beside the save and links to it by name. screenshotPath may be
+// empty, and a picture that cannot be read is left out rather than failing
+// the save's upload.
+func (c *Client) UploadSaveWithScreenshot(query UploadSaveQuery, savePath, screenshotPath string) (Save, error) {
 	file, err := os.Open(savePath)
 	if err != nil {
 		return Save{}, err
@@ -386,6 +395,18 @@ func (c *Client) UploadSaveWithQuery(query UploadSaveQuery, savePath string) (Sa
 		return Save{}, err
 	}
 
+	if screenshotPath != "" {
+		if picture, err := os.ReadFile(screenshotPath); err == nil {
+			part, err := writer.CreateFormFile("screenshotFile", screenshotName(savePath, screenshotPath))
+			if err != nil {
+				return Save{}, err
+			}
+			if _, err := part.Write(picture); err != nil {
+				return Save{}, err
+			}
+		}
+	}
+
 	if err := writer.Close(); err != nil {
 		return Save{}, err
 	}
@@ -398,3 +419,52 @@ func (c *Client) UploadSaveWithQuery(query UploadSaveQuery, savePath string) (Sa
 
 	return res, nil
 }
+
+// screenshotName is what a save's picture is uploaded as: the save's name
+// with the picture's extension. RomM matches a save to its screenshot by the
+// name without extension.
+func screenshotName(savePath, screenshotPath string) string {
+	save := filepath.Base(savePath)
+	return strings.TrimSuffix(save, filepath.Ext(save)) + strings.ToLower(filepath.Ext(screenshotPath))
+}
+
+// ScreenshotPath is the API path of the save's picture, or "" when it has
+// none.
+func (s Save) ScreenshotPath() string {
+	shot := s.Screenshot
+	if shot.ID == 0 && shot.FileName == "" {
+		return ""
+	}
+	if shot.DownloadPath != "" {
+		return shot.DownloadPath
+	}
+	if shot.FullPath != "" {
+		return "/api/raw/assets/" + strings.TrimPrefix(shot.FullPath, "/")
+	}
+	return ""
+}
+
+// ScreenshotExt is the picture's extension, as ".png", or "" when it has none.
+func (s Save) ScreenshotExt() string {
+	ext := s.Screenshot.FileExtension
+	if ext == "" {
+		ext = strings.TrimPrefix(filepath.Ext(s.Screenshot.FileName), ".")
+	}
+	ext = strings.ToLower(strings.TrimPrefix(ext, "."))
+	if ext == "" {
+		return ""
+	}
+	return "." + ext
+}
+
+// DownloadSaveScreenshot fetches the save's picture.
+func (c *Client) DownloadSaveScreenshot(save Save) ([]byte, error) {
+	path := save.ScreenshotPath()
+	if path == "" {
+		return nil, ErrNoScreenshot
+	}
+	return c.doRequestRaw("GET", path, nil)
+}
+
+// ErrNoScreenshot is returned for a save that has no picture.
+var ErrNoScreenshot = errors.New("the save has no picture")

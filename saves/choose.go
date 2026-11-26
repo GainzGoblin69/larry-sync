@@ -170,11 +170,27 @@ func promote(client *romm.Client, deviceID string, item SyncItem, path, slot str
 	if emulator == "." || emulator == "" {
 		emulator = "unknown"
 	}
-	uploaded, err := client.UploadSaveWithQuery(romm.UploadSaveQuery{
+	// the chosen save's picture goes up with its new version
+	picture := ""
+	if item.RemoteSave != nil && item.RemoteSave.ScreenshotPath() != "" {
+		if data, err := client.DownloadSaveScreenshot(*item.RemoteSave); err == nil {
+			ext := item.RemoteSave.ScreenshotExt()
+			if ext == "" {
+				ext = ".png"
+			}
+			candidate := filepath.Join(staging, "picture"+ext)
+			if os.WriteFile(candidate, data, 0o644) == nil {
+				picture = candidate
+			}
+		} else {
+			gaba.GetLogger().Info("Could not fetch the chosen save's picture", "save", item.RemoteSave.ID, "error", err)
+		}
+	}
+	uploaded, err := client.UploadSaveWithScreenshot(romm.UploadSaveQuery{
 		RomID:    item.LocalSave.RomID,
 		Slot:     slot,
 		Emulator: emulator,
-	}, versioned)
+	}, versioned, picture)
 	if err != nil {
 		return romm.Save{}, err
 	}

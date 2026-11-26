@@ -906,13 +906,15 @@ func ScanSaves(config *settings.Config) []LocalSave {
 
 					logger.Debug("Matched save to ROM", "file", entry.Name(), "romID", rom.ID, "romName", rom.Name)
 
+					savePath := filepath.Join(saveDir, entry.Name())
 					saves = append(saves, LocalSave{
 						RomID:       rom.ID,
 						RomName:     rom.Name,
 						FSSlug:      rommFSSlug,
 						FileName:    entry.Name(),
-						FilePath:    filepath.Join(saveDir, entry.Name()),
+						FilePath:    savePath,
 						EmulatorDir: emuDir,
+						Screenshot:  screenshotFor(config, emuDir, savePath),
 					})
 				}
 
@@ -1327,7 +1329,7 @@ func upload(client *romm.Client, deviceID string, item *SyncItem) uploadOutcome 
 		uploadPath = zipPath
 	}
 
-	uploadedSave, err := client.UploadSaveWithQuery(query, uploadPath)
+	uploadedSave, err := client.UploadSaveWithScreenshot(query, uploadPath, item.LocalSave.Screenshot)
 	if err != nil {
 		if errors.Is(err, romm.ErrConflict) {
 			return resolveUploadConflict(client, deviceID, item, query.Slot, err)
