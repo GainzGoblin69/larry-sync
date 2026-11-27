@@ -106,6 +106,16 @@ func (s *Session) syncSaves(options SaveOptions) (saves.SyncReport, error) {
 	s.Events.Result("saves_downloaded", strconv.Itoa(report.Downloaded))
 	s.Events.Result("saves_conflicts", strconv.Itoa(report.Conflicts))
 	s.Events.Result("saves_errors", strconv.Itoa(report.Errors))
+	// which games' saves went up, for the device to say so
+	for _, item := range report.Items {
+		if item.Action == saves.ActionUpload && item.Success {
+			name := item.LocalSave.RomName
+			if name == "" {
+				name = item.LocalSave.FileName
+			}
+			s.Events.Result("uploaded_game", name)
+		}
+	}
 	return report, nil
 }
 

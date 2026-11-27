@@ -391,6 +391,9 @@ func TestLarrySyncSendsAndShowsSavePictures(t *testing.T) {
 	if push.code != 0 || push.result("saves_uploaded") != "1" {
 		t.Fatalf("pushing the save did not upload it\n%s", explain(t, card, home, runs...))
 	}
+	if push.result("uploaded_game") == "" {
+		t.Errorf("the push did not say which game's save went up\n%s", explain(t, card, home, runs...))
+	}
 
 	list := larrySync(t, card, home, "list-saves", "--path", romPath)
 	runs = append(runs, list)
