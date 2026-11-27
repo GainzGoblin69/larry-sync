@@ -412,6 +412,34 @@ func TestLarrySyncSendsAndShowsSavePictures(t *testing.T) {
 	if pushed == "" {
 		t.Fatalf("the pushed save is not listed as on the device\n%s", explain(t, card, home, runs...))
 	}
+	if fields := saveLines(list)[pushed]; fields[8] != "mgba" {
+		t.Errorf("the save went up under emulator %q, want the web player's mgba", fields[8])
+	}
+
+	// Another device that asks as the TV app and RomM's web player do (this
+	// game, the web player's core only) is offered this save to carry on from.
+	tv, err := saves.RegisterDevice(c, fmt.Sprintf("larry-e2e-tv-%d", time.Now().UnixNano()))
+	if err != nil {
+		t.Fatalf("registering a second device: %v", err)
+	}
+	plan, err := c.Negotiate(rommapi.SyncNegotiatePayload{
+		DeviceID:  tv.ID,
+		Saves:     []rommapi.ClientSaveState{},
+		RomIDs:    []int{rom.ID},
+		Emulators: []string{"mgba"},
+	})
+	if err != nil {
+		t.Fatalf("negotiating as the TV: %v", err)
+	}
+	offered := false
+	for _, op := range plan.Operations {
+		if op.Action == "download" && op.SaveID != nil && fmt.Sprint(*op.SaveID) == pushed {
+			offered = true
+		}
+	}
+	if !offered {
+		t.Errorf("a device asking for mgba saves was not offered save %s: %+v", pushed, plan.Operations)
+	}
 	picture := shotLines(list)[pushed]
 	if picture == "" {
 		t.Fatalf("list-saves did not bring down save %s's picture\n%s", pushed, explain(t, card, home, runs...))

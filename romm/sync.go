@@ -20,6 +20,10 @@ type ClientSaveState struct {
 type SyncNegotiatePayload struct {
 	DeviceID string            `json:"device_id"`
 	Saves    []ClientSaveState `json:"saves"`
+	// Asked about only these games, and only saves under these emulator
+	// names, as RomM's web player and the TV app ask. Both optional.
+	RomIDs    []int    `json:"rom_ids,omitempty"`
+	Emulators []string `json:"emulators,omitempty"`
 }
 
 // SyncOperationSchema is one operation the orchestrator wants the client to perform.

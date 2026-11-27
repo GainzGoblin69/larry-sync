@@ -1033,12 +1033,7 @@ func buildClientSaveStates(localSaves []LocalSave, config *settings.Config, reco
 	for _, ls := range localSaves {
 		slot := resolveReportedSlot(ls, config, recordedSlots)
 
-		emulator := filepath.Base(ls.EmulatorDir)
-		if emulator == "." || emulator == "" {
-			emulator = ""
-		} else if emulator == "SAVEDATA" {
-			emulator = "PPSSPP"
-		}
+		emulator := rommEmulator(ls.FSSlug, ls.EmulatorDir)
 
 		var updatedAt time.Time
 		var size int64
@@ -1251,12 +1246,9 @@ func buildUploadQuery(deviceID string, item *SyncItem) romm.UploadSaveQuery {
 		slot = SlotName(item.RemoteSave.Slot)
 	}
 
-	emulator := filepath.Base(item.LocalSave.EmulatorDir)
-	if emulator == "." || emulator == "" {
+	emulator := rommEmulator(item.LocalSave.FSSlug, item.LocalSave.EmulatorDir)
+	if emulator == "" {
 		emulator = "unknown"
-	}
-	if emulator == "SAVEDATA" { // PSP folder name varies across CFW
-		emulator = "PPSSPP"
 	}
 
 	query := romm.UploadSaveQuery{

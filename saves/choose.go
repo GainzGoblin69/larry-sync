@@ -166,8 +166,9 @@ func promote(client *romm.Client, deviceID string, item SyncItem, path, slot str
 		return romm.Save{}, err
 	}
 
-	emulator := filepath.Base(item.LocalSave.EmulatorDir)
-	if emulator == "." || emulator == "" {
+	// under the web player's name, so the TV and the web player carry on from it
+	emulator := rommEmulator(item.LocalSave.FSSlug, item.LocalSave.EmulatorDir)
+	if emulator == "" {
 		emulator = "unknown"
 	}
 	// the chosen save's picture goes up with its new version
