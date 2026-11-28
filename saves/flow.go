@@ -417,13 +417,20 @@ func mapOperationsToItems(
 				continue
 			}
 			// grout keeps one save (one slot) per ROM. If the ROM already has a local
-			// save, only its own slot is managed, so a download for any other slot is the
-			// orchestrator offering an alternate-slot save we don't use here, and pulling
-			// it would clobber the local save and flip-flop on every sync. Skip it.
+			// save, only its own slot is managed, so a download for another slot is the
+			// orchestrator offering an alternate-slot save we don't use here. One that is
+			// older than the device's save is skipped: pulling it would clobber the save
+			// and flip-flop on every sync. One that is newer is the game played on since,
+			// somewhere else (another device, the web player), so it comes down and the
+			// game carries on from it. That cannot flip-flop: once it is down, the device's
+			// save is the newer one again.
 			if ls, ok := localByRom[op.RomID]; ok {
 				managedSlot := resolveReportedSlot(ls, config, recordedSlots)
 				opSlot := reportedOpSlot(op)
-				if opSlot != managedSlot {
+				if opSlot != managedSlot && newerThanLocal(op, ls) {
+					logger.Info("Taking a newer save from another slot",
+						"romID", op.RomID, "opSlot", opSlot, "managedSlot", managedSlot, "file", op.FileName)
+				} else if opSlot != managedSlot {
 					logger.Debug("Skipping download: ROM's local save is in a different slot",
 						"romID", op.RomID, "opSlot", opSlot, "managedSlot", managedSlot, "file", op.FileName)
 					continue
@@ -466,6 +473,13 @@ func mapOperationsToItems(
 			preferred = config.GetSlotPreference(romID)
 		}
 		op := pickDownloadOp(dops, preferred)
+		if _, hasLocal := localByRom[romID]; hasLocal {
+			// Every op left for a ROM with a save is either its own slot or newer
+			// than the device's save: the newest of them is where play left off,
+			// and its slot becomes the one the device's save is kept under.
+			op = pickDownloadOp(dops, "")
+			preferred = reportedOpSlot(op)
+		}
 
 		// The server datetime-tags stored save filenames, so a download operation's
 		// filename normally differs from the emulator's plain local filename. The slot
@@ -484,8 +498,8 @@ func mapOperationsToItems(
 
 		// First-time multi-slot pull: if this ROM has no local save yet and the server
 		// offers it in more than one slot, surface the choice to the UI instead of
-		// silently picking. (A ROM that already has a local save was filtered to its
-		// managed slot above, so it never reaches here multi-slot.)
+		// silently picking. (A ROM that already has a local save already took the
+		// newest of its saves above.)
 		if _, hasLocal := localByRom[romID]; !hasLocal {
 			if slots := distinctOpSlots(dops); len(slots) > 1 {
 				item.AvailableSlots = slots
@@ -524,6 +538,19 @@ func pickDownloadOp(ops []romm.SyncOperationSchema, preferredSlot string) romm.S
 		}
 	}
 	return best
+}
+
+// newerThanLocal reports whether the server's save in op was changed after the
+// device's save ls was last written.
+func newerThanLocal(op romm.SyncOperationSchema, ls LocalSave) bool {
+	if op.ServerUpdatedAt == nil || ls.FilePath == "" {
+		return false
+	}
+	info, err := os.Stat(ls.FilePath)
+	if err != nil {
+		return false
+	}
+	return op.ServerUpdatedAt.After(info.ModTime())
 }
 
 // buildRemoteSaveStub builds a *romm.Save from a negotiate operation for execution.

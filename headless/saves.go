@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
+	"time"
 
 	"grout/saves"
 )
@@ -51,10 +53,10 @@ var ErrNoDevice = errors.New("this device is not registered for save sync")
 // SyncSaves reconciles saves with the server.
 //
 // The server decides what each save needs, exactly as it does for grout.
-// Conflicts are never resolved here: a save both sides changed is left alone
-// on both sides and counted, so nothing a player made is overwritten without
-// being asked. A sync of every save also carries whatever was played while
-// offline, so there is no separate queue to keep.
+// A save both sides changed goes the way of the newer one (see
+// settleConflicts), so a game always carries on from its latest save, and
+// the other copy is kept rather than lost. A sync of every save also carries
+// whatever was played while offline, so there is no separate queue to keep.
 func (s *Session) SyncSaves(options SaveOptions) (saves.SyncReport, error) {
 	if err := s.Online(); err != nil {
 		return saves.SyncReport{}, err
@@ -77,7 +79,7 @@ func (s *Session) syncSaves(options SaveOptions) (saves.SyncReport, error) {
 		return saves.SyncReport{}, fmt.Errorf("comparing saves with the server: %w", err)
 	}
 
-	items := selectSaveItems(result.Items, options)
+	items := settleConflicts(selectSaveItems(result.Items, options), options.Direction)
 
 	// What was decided, at info level, so a save that did not come down can
 	// be traced from the log on the card without turning on debug logging.
@@ -150,4 +152,44 @@ func saveRomID(item saves.SyncItem) int {
 		return item.RemoteSave.RomID
 	}
 	return 0
+}
+
+// settleConflicts settles each save both sides changed in favour of the newer
+// one: the player always carries on from their latest save, wherever it was
+// made. Nothing is lost by it. A download first backs up the save it
+// replaces (in the save folder's .backup); an upload adds a version on RomM,
+// which keeps the ones before. A conflict the direction does not allow (the
+// device's save is newer, before a game) stays, and the newer save on the
+// device is what plays.
+func settleConflicts(items []saves.SyncItem, direction Direction) []saves.SyncItem {
+	logger := slog.Default()
+	for i := range items {
+		item := &items[i]
+		if item.Action != saves.ActionConflict || item.RemoteSave == nil {
+			continue
+		}
+		var local time.Time
+		if info, err := os.Stat(item.LocalSave.FilePath); err == nil {
+			local = info.ModTime()
+		}
+		server := item.RemoteSave.UpdatedAt
+		switch {
+		case !server.IsZero() && server.After(local) && item.RemoteSave.ID != 0:
+			if direction == DirectionPush {
+				continue
+			}
+			item.Action = saves.ActionDownload
+		case !local.IsZero() && !server.After(local):
+			if direction == DirectionPull {
+				continue
+			}
+			item.Action = saves.ActionUpload
+			item.ForceOverwrite = true
+		default:
+			continue
+		}
+		logger.Info("Save changed on both sides: the newer one wins", "rom", saveRomID(*item),
+			"action", item.Action.String(), "device_save_time", local, "romm_save_time", server)
+	}
+	return items
 }

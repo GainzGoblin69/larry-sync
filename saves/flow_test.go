@@ -657,6 +657,40 @@ func TestMapOperationsToItems_AcceptsSameSlotDownloadWhenLocalSaveExists(t *test
 	}
 }
 
+func TestMapOperationsToItems_TakesNewerOtherSlotDownload(t *testing.T) {
+	// The ROM's save on the device is managed under "default" (a save chosen from
+	// the web player's slot), and the TV has since saved the game under
+	// "autosave". Play carries on from the newest save, wherever it went.
+	path := filepath.Join(t.TempDir(), "Super Mario World.srm")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hourAgo := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, hourAgo, hourAgo); err != nil {
+		t.Fatal(err)
+	}
+	local := []LocalSave{{RomID: 303, FileName: "Super Mario World.srm", FilePath: path, FSSlug: "snes"}}
+	recorded := map[saveKey]string{{romID: 303, fileName: "Super Mario World.srm"}: "default"}
+	ops := []romm.SyncOperationSchema{
+		{Action: "download", RomID: 303, SaveID: ptrInt(240), FileName: "SMW [tv].srm", Slot: ptrStr("autosave"), ServerUpdatedAt: ptrTime(time.Now().Add(-time.Minute))},
+	}
+
+	items := mapOperationsToItems(ops, local, nil, nil, nil, recorded, nil)
+	if len(items) != 1 || items[0].RemoteSave == nil || items[0].RemoteSave.ID != 240 || items[0].TargetSlot != "autosave" {
+		t.Fatalf("expected the newer TV save to come down into its slot, got %+v", items)
+	}
+
+	// Once it is down, the device's save is the newer one: no flip-flop.
+	if err := os.Chtimes(path, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	ops[0].Slot = ptrStr("default")
+	recorded[saveKey{romID: 303, fileName: "Super Mario World.srm"}] = "autosave"
+	if items := mapOperationsToItems(ops, local, nil, nil, nil, recorded, nil); len(items) != 0 {
+		t.Fatalf("expected the older other-slot save to be left, got %+v", items)
+	}
+}
+
 func TestBuildUploadQuery_OverwriteOnlyWhenForced(t *testing.T) {
 	// A normal upload op (orchestrator said client is newer) carries a RemoteSave stub but
 	// must NOT force overwrite: overwrite=false lets the server's 409 guard catch races.
