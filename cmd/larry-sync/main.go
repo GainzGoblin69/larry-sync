@@ -70,6 +70,11 @@ Commands:
   update check|download [--card PATH]
         Check the firmware's GitHub releases for a newer build, or download
         its MinUI.zip to the top of the card for the boot script to install.
+  pad serve
+        Be a Bluetooth gamepad, for playing on a TV with the device in hand,
+        until stopped. BlueZ must be running without its input plugin. The
+        buttons come from /tmp/larry-pad.fifo; RESULT pad says waiting or
+        connected, RESULT host which TV.
   files serve [--card PATH]
         Serve the card to a phone on the same Wi-Fi, to look through,
         delete files and edit text files, until stopped. Prints the page's
@@ -283,6 +288,13 @@ func dispatch(ctx context.Context, events *headless.Events, command string, args
 			return updater.Download(ctx)
 		}
 		return usageError{fmt.Errorf("unknown update action %q: give check or download", action)}
+
+	case "pad":
+		if len(args) == 0 || args[0] != "serve" {
+			return usageError{errors.New("give serve")}
+		}
+		home := filepath.Dir(headless.ExportDir())
+		return headless.NewPadServer(home, events).Serve(ctx)
 
 	case "files":
 		card := flags.String("card", cardPath(), "the top of the SD card")
