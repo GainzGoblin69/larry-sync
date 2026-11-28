@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -205,6 +207,25 @@ func setUpBluetooth(bus *DBusConn) error {
 	return nil
 }
 
+// leadTheLink asks to be the side that leads the Bluetooth link, which can
+// send the moment a button is pressed rather than when the TV next asks;
+// the Hammer already leads when it was the one that connected. What the
+// link ends up as goes to the log, for when latency needs looking into.
+func leadTheLink(host string) {
+	logger := slog.Default()
+	time.Sleep(300 * time.Millisecond) // the connection settles first
+	if out, err := exec.Command("hcitool", "sr", host, "master").CombinedOutput(); err != nil {
+		logger.Info("Could not lead the Bluetooth link", "host", host, "error", err, "output", strings.TrimSpace(string(out)))
+	}
+	time.Sleep(500 * time.Millisecond)
+	if out, err := exec.Command("hcitool", "con").CombinedOutput(); err == nil {
+		logger.Info("Bluetooth link", "connections", strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.Command("hcitool", "lp", host).CombinedOutput(); err == nil {
+		logger.Info("Bluetooth link policy", "policy", strings.TrimSpace(string(out)))
+	}
+}
+
 // trust marks the TV as trusted, so it reconnects without asking again.
 func trust(bus *DBusConn, addr string) {
 	path := bluezAdapter + "/dev_" + strings.ReplaceAll(addr, ":", "_")
@@ -305,7 +326,10 @@ func l2capConnect(addr string, psm uint16) (int, error) {
 type PadServer struct {
 	Events   *Events
 	Pipe     string // where the launcher writes PadStates
-	HostFile string // the TV last played on, to reconnect to
+	HostFile string // the TV last played on, to reconnect to: "address<TAB>name"
+	// New is for pairing another device: the TV last played on is not
+	// connected to, even if it is in range.
+	New bool
 
 	mu        sync.Mutex
 	state     PadState
@@ -417,9 +441,15 @@ func (p *PadServer) Serve(ctx context.Context) error {
 			continue
 		}
 		trust(bus, host)
-		_ = os.WriteFile(p.HostFile, []byte(host+"\n"), 0o644)
+		name := deviceName(bus, host)
+		_ = os.WriteFile(p.HostFile, []byte(host+"\t"+name+"\n"), 0o644)
+		p.New = false // this one is the TV now
 		p.Events.Result("host", host)
+		if name != "" {
+			p.Events.Result("host_name", name)
+		}
 		p.Events.Result("pad", "connected")
+		go leadTheLink(host)
 		p.send()
 		p.serveControl()
 		if ctx.Err() == nil {
@@ -427,6 +457,35 @@ func (p *PadServer) Serve(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// readHost is the TV last played on: its address and name.
+func readHost(path string) (string, string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	addr, name, _ := strings.Cut(strings.TrimSpace(string(data)), "\t")
+	return strings.TrimSpace(addr), strings.TrimSpace(name)
+}
+
+// deviceName is what the TV calls itself, from BlueZ, or "" if unknown.
+func deviceName(bus *DBusConn, addr string) string {
+	path := bluezAdapter + "/dev_" + strings.ReplaceAll(addr, ":", "_")
+	for _, prop := range []string{"Alias", "Name"} {
+		reply, err := bus.Call("org.bluez", path, "org.freedesktop.DBus.Properties", "Get", "org.bluez.Device1", prop)
+		if err != nil || reply.signature != "v" || len(reply.body) < 3 {
+			continue
+		}
+		sigLen := int(reply.body[0])
+		if sigLen != 1 || reply.body[1] != 's' {
+			continue
+		}
+		if name, _, err := decodeDBusString(reply.body, 3); err == nil && name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 // padConn is a TV's two channels.
@@ -438,12 +497,9 @@ type padConn struct {
 // connect waits for the TV to open both channels, or opens them to the TV
 // last played on, every few seconds. Returns the TV's address.
 func (p *PadServer) connect(ctx context.Context, accepted <-chan padConn) (string, bool) {
-	last := ""
-	if data, err := os.ReadFile(p.HostFile); err == nil {
-		last = strings.TrimSpace(string(data))
-	}
+	last, _ := readHost(p.HostFile)
 	tryLast := func() (string, bool) {
-		if last == "" {
+		if last == "" || p.New {
 			return "", false
 		}
 		c, err := l2capConnect(last, hidControlPSM)

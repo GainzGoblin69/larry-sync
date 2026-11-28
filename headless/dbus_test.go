@@ -124,3 +124,26 @@ func TestPadSetsUpThroughBlueZ(t *testing.T) {
 		t.Error("an object it does not have answered")
 	}
 }
+
+// The TV's name, as BlueZ has it, for the device to say which TV it will
+// connect to.
+func TestPadReadsTheTVsName(t *testing.T) {
+	socket := testBus(t)
+	bluez := dialTestBus(t, socket)
+	if _, err := bluez.Call("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "RequestName", "org.bluez", uint32(0)); err != nil {
+		t.Fatal(err)
+	}
+	bluez.Handle("/org/bluez/hci0/dev_A4_C1_38_0B_5E_F2", func(call *dbusMessage) any {
+		if call.member == "Get" {
+			return dbusVariant{"Living Room TV"}
+		}
+		return nil
+	})
+	pad := dialTestBus(t, socket)
+	if got := deviceName(pad, "A4:C1:38:0B:5E:F2"); got != "Living Room TV" {
+		t.Errorf("name %q", got)
+	}
+	if got := deviceName(pad, "00:00:00:00:00:01"); got != "" {
+		t.Errorf("an unknown device has a name: %q", got)
+	}
+}

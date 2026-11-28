@@ -163,3 +163,20 @@ func TestPadSendsTheLaunchersButtons(t *testing.T) {
 		}
 	}
 }
+
+func TestReadHost(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pad-host")
+	if addr, name := readHost(path); addr != "" || name != "" {
+		t.Error("a host with no file")
+	}
+	os.WriteFile(path, []byte("A4:C1:38:0B:5E:F2\tLiving Room TV\n"), 0o644)
+	if addr, name := readHost(path); addr != "A4:C1:38:0B:5E:F2" || name != "Living Room TV" {
+		t.Errorf("%q %q", addr, name)
+	}
+	// written by the build before names were kept
+	os.WriteFile(path, []byte("A4:C1:38:0B:5E:F2\n"), 0o644)
+	if addr, name := readHost(path); addr != "A4:C1:38:0B:5E:F2" || name != "" {
+		t.Errorf("old file: %q %q", addr, name)
+	}
+}
