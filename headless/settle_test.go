@@ -36,7 +36,7 @@ func TestSettleConflictsTakesTheNewerSave(t *testing.T) {
 		device    time.Time
 		server    time.Time
 		direction Direction
-		want      saves.Action
+		want      saves.SyncAction
 		force     bool
 	}{
 		{"the TV's save is newer, before a game", older, newer, DirectionPull, saves.ActionDownload, false},
