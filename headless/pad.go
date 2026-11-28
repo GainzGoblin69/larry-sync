@@ -479,6 +479,10 @@ func (p *PadServer) connect(ctx context.Context, accepted <-chan padConn) (strin
 }
 
 func (p *PadServer) setChannels(control, interrupt int, host string) {
+	// button reports go ahead of anything else waiting for the radio
+	if interrupt > 0 {
+		_ = syscall.SetsockoptInt(interrupt, syscall.SOL_SOCKET, syscall.SO_PRIORITY, 6)
+	}
 	p.mu.Lock()
 	p.control, p.interrupt, p.host = control, interrupt, host
 	p.mu.Unlock()
