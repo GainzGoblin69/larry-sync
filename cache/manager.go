@@ -22,6 +22,8 @@ type Manager struct {
 	host        settings.Host
 	config      settings.Config
 	initialized bool
+	// known is the device's record of downloaded game files: see SetKnownFiles.
+	known map[string]int
 
 	stats *Stats
 }

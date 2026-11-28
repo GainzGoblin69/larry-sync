@@ -15,9 +15,13 @@ COPY . .
 
 # The workspace points at a sibling gabagool checkout that is not in the build
 # context, so build against the published module.
-RUN rm -f go.work go.work.sum && GOWORK=off go build -o /grout ./app
+RUN rm -f go.work go.work.sum && GOWORK=off go build -o /grout ./app \
+    && GOWORK=off go build -o /larry-sync ./cmd/larry-sync
 
 ENV GROUT_BINARY=/grout
+# The screenless build Larry Boy Advanced runs on NextUI; larrysync_test.go
+# runs it one command at a time, as that launcher does.
+ENV LARRY_SYNC_BINARY=/larry-sync
 
 # Development mode leaves the toolkit's keyboard mapping in place. Without it
 # grout loads the firmware's controller mapping and ignores every keystroke.

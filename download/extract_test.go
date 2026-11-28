@@ -97,6 +97,39 @@ func TestExtractArchive_PrefersThePlaylist(t *testing.T) {
 	}
 }
 
+// A note listed ahead of the game must not be what gets launched.
+func TestExtractArchive_SkipsNotesAndPictures(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "DKC3.zip")
+	zipOf(t, archivePath, "readme.txt", "box.jpg", "Donkey Kong Country 3 (USA).sfc")
+
+	path, err := ExtractArchive(archivePath, dir, &atomic.Float64{})
+	if err != nil {
+		t.Fatalf("ExtractArchive: %v", err)
+	}
+	if filepath.Base(path) != "Donkey Kong Country 3 (USA).sfc" {
+		t.Errorf("path = %q, want the rom", path)
+	}
+}
+
+func TestPlayablePath(t *testing.T) {
+	tests := []struct {
+		contents []string
+		want     string
+	}{
+		{nil, ""},
+		{[]string{"Game.sfc"}, "Game.sfc"},
+		{[]string{"Game/", "Game/readme.TXT", "Game/Game.sfc"}, "Game/Game.sfc"},
+		{[]string{"a.chd", "b.chd", "Game.m3u"}, "Game.m3u"},
+		{[]string{"only-notes.txt"}, "only-notes.txt"}, // nothing better to offer
+	}
+	for _, test := range tests {
+		if got := playablePath(test.contents); got != test.want {
+			t.Errorf("playablePath(%q) = %q, want %q", test.contents, got, test.want)
+		}
+	}
+}
+
 // A broken archive is not worth losing the download to: the file stays put so
 // a frontend that can read archives still has something to launch.
 func TestExtractArchive_KeepsTheArchiveOnFailure(t *testing.T) {

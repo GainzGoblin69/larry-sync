@@ -4,10 +4,12 @@ package archive
 import (
 	"archive/zip"
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bodgit/sevenzip"
 	"go.uber.org/atomic"
@@ -32,6 +34,22 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 		pw.progress.Store(float64(*pw.extractedBytes) / float64(pw.totalBytes))
 	}
 	return n, err
+}
+
+// ErrOutsideDestination is returned for an archive entry whose name would put
+// it outside the folder being unpacked into, such as "../../etc/passwd".
+var ErrOutsideDestination = errors.New("archive entry points outside the destination")
+
+// entryPath joins an archive entry's name onto destDir, refusing a name that
+// would land anywhere but inside it. Archives come from the server, so their
+// names are not to be trusted with the card.
+func entryPath(destDir, name string) (string, error) {
+	path := filepath.Join(destDir, name)
+	root := filepath.Clean(destDir)
+	if path != root && !strings.HasPrefix(path, root+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%w: %s", ErrOutsideDestination, name)
+	}
+	return path, nil
 }
 
 func Unzip(zipPath string, destDir string, progress *atomic.Float64) error {
@@ -60,7 +78,10 @@ func Unzip(zipPath string, destDir string, progress *atomic.Float64) error {
 	var extractedBytes uint64
 
 	for _, file := range reader.File {
-		filePath := filepath.Join(destDir, file.Name)
+		filePath, err := entryPath(destDir, file.Name)
+		if err != nil {
+			return err
+		}
 
 		if file.FileInfo().IsDir() {
 			if !createdDirs[filePath] {
@@ -114,7 +135,10 @@ func Un7zip(archivePath string, destDir string, progress *atomic.Float64) error 
 	var extractedBytes uint64
 
 	for _, file := range reader.File {
-		filePath := filepath.Join(destDir, file.Name)
+		filePath, err := entryPath(destDir, file.Name)
+		if err != nil {
+			return err
+		}
 
 		if file.FileInfo().IsDir() {
 			if !createdDirs[filePath] {

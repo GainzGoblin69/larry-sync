@@ -1,0 +1,52 @@
+name: Larry Sync
+
+# Builds the headless service for the TrimUI Brick (arm64) and keeps the result
+# as a downloadable artifact, so a branch can be tried on a device before it is
+# merged.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: larry-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (arm64)
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same image grout's device builds use, which carries the arm64 SDL
+      # headers the UI toolkit links against. larry-sync never opens a window,
+      # but the catalog and save packages still import the toolkit for logging.
+      - name: Build larry-sync
+        run: |
+          VERSION="$(jq -r '.version // "dev"' pak.json)-larry"
+          COMMIT="$(git rev-parse --short HEAD)"
+          mkdir -p dist/larry-sync
+          docker run --rm \
+            -v "$PWD":/build -w /build \
+            -e GOWORK=off -e GOFLAGS=-buildvcs=false \
+            ghcr.io/brandonkowalski/quasimodo:latest \
+            sh -c "go build \
+              -ldflags \"-X 'grout/version.Version=$VERSION' -X 'grout/version.GitCommit=$COMMIT'\" \
+              -o dist/larry-sync/larry-sync ./cmd/larry-sync"
+          sudo chown -R "$(id -u):$(id -g)" dist
+          cp scripts/LarryBoy/larry-sync.sh LARRY.md dist/larry-sync/
+          chmod a+x dist/larry-sync/larry-sync dist/larry-sync/larry-sync.sh
+          file dist/larry-sync/larry-sync
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: larry-sync-tg5040
+          path: dist/larry-sync
+          if-no-files-found: error

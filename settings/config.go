@@ -90,6 +90,11 @@ type Config struct {
 	SaveBackupLimit       int               `json:"save_backup_limit,omitempty"` // 0 = no limit, 5/10/15 = keep N most recent per game
 
 	PlatformsBinding map[string]string `json:"-"`
+
+	// ScreenshotDir is where the device keeps a picture of each game from when
+	// it was last left, at <emulator folder>/<save name>.png. A save uploaded
+	// soon after its picture was taken goes up with it. Empty means none.
+	ScreenshotDir string `json:"-"`
 }
 
 type DirectoryMapping struct {
