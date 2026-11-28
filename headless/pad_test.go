@@ -2,9 +2,14 @@ package headless
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestPadReport(t *testing.T) {
@@ -106,5 +111,55 @@ func TestBDAddr(t *testing.T) {
 	}
 	if _, err := parseBDAddr("not:an:addr"); err == nil {
 		t.Error("parsed a bad address")
+	}
+}
+
+// The launcher's button changes, through the pipe, come out on the
+// interrupt channel as reports, in order, as they happen.
+func TestPadSendsTheLaunchersButtons(t *testing.T) {
+	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_SEQPACKET, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(pair[1])
+	p := NewPadServer(t.TempDir(), NewEvents(&bytes.Buffer{}))
+	p.Pipe = filepath.Join(t.TempDir(), "pad.fifo")
+	p.setChannels(-1, pair[0], "00:11:22:33:44:55")
+	defer p.disconnect()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go p.readPipe(ctx)
+	var launcher *os.File
+	for i := 0; i < 100; i++ {
+		if launcher, err = os.OpenFile(p.Pipe, os.O_WRONLY, 0); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if launcher == nil {
+		t.Fatalf("no pipe: %v", err)
+	}
+	defer launcher.Close()
+
+	presses := []PadState{
+		{Buttons: 1 << 0, Hat: 8},       // A
+		{Buttons: 1<<0 | 1<<11, Hat: 0}, // A + Start, up
+		{Buttons: 0, Hat: 6},            // left
+		padNeutral,
+	}
+	for _, s := range presses {
+		launcher.Write([]byte{byte(s.Buttons), byte(s.Buttons >> 8), s.Hat})
+	}
+	buf := make([]byte, 32)
+	for i, s := range presses {
+		syscall.SetsockoptTimeval(pair[1], syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &syscall.Timeval{Sec: 2})
+		n, err := syscall.Read(pair[1], buf)
+		if err != nil {
+			t.Fatalf("report %d did not arrive: %v", i, err)
+		}
+		if !bytes.Equal(buf[:n], s.report()) {
+			t.Errorf("report %d: % x, want % x", i, buf[:n], s.report())
+		}
 	}
 }
